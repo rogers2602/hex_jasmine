@@ -121,32 +121,6 @@ static uint32_t msm_lmh_mitigation_notify(struct msm_lmh_dcvs_hw *hw)
 
 	val = readl_relaxed(hw->osm_hw_reg);
 	dcvsh_get_frequency(val, max_limit);
-	cpu_dev = get_cpu_device(cpumask_first(&hw->core_map));
-	if (!cpu_dev) {
-		pr_err("Error in get CPU%d device\n",
-			cpumask_first(&hw->core_map));
-		goto notify_exit;
-	}
-
-	freq_val = FREQ_KHZ_TO_HZ(max_limit);
-	rcu_read_lock();
-	opp_entry = dev_pm_opp_find_freq_floor(cpu_dev, &freq_val);
-	/*
-	 * Hardware mitigation frequency can be lower than the lowest
-	 * possible CPU frequency. In that case freq floor call will
-	 * fail with -ERANGE and we need to match to the lowest
-	 * frequency using freq_ceil.
-	 */
-	if (IS_ERR(opp_entry) && PTR_ERR(opp_entry) == -ERANGE) {
-		opp_entry = dev_pm_opp_find_freq_ceil(cpu_dev, &freq_val);
-		if (IS_ERR(opp_entry))
-			dev_err(cpu_dev, "frequency:%lu. opp error:%ld\n",
-					freq_val, PTR_ERR(opp_entry));
-	}
-	rcu_read_unlock();
-	max_limit = FREQ_HZ_TO_KHZ(freq_val);
-
-	sched_update_cpu_freq_min_max(&hw->core_map, 0, max_limit);
 	trace_lmh_dcvs_freq(cpumask_first(&hw->core_map), max_limit);
 
 notify_exit:
