@@ -2209,17 +2209,17 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	src_cpu = cpu = task_cpu(p);
 
 	if (!(p->state & state)) {
-+		/*
-+		 * The task might be running due to a spinlock sleeper
-+		 * wakeup. Check the saved state and set it to running
-+		 * if the wakeup condition is true.
-+		 */
-+		if (!(wake_flags & WF_LOCK_SLEEPER)) {
-+			if (p->saved_state & state) {
-+				p->saved_state = TASK_RUNNING;
-+				success = 1;
-+			}
-+		}
+		/*
+		 * The task might be running due to a spinlock sleeper
+		 * wakeup. Check the saved state and set it to running
+		 * if the wakeup condition is true.
+		 */
+		if (!(wake_flags & WF_LOCK_SLEEPER)) {
+			if (p->saved_state & state) {
+				p->saved_state = TASK_RUNNING;
+				success = 1;
+			}
+		}
 		goto out;
 	}
 

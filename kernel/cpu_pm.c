@@ -114,7 +114,7 @@ EXPORT_SYMBOL_GPL(cpu_pm_enter);
  */
 int cpu_pm_exit(void)
 {
-	return cpu_pm_notify(CPU_PM_EXIT, -1, NULL);
+	return cpu_pm_notify(CPU_PM_EXIT, -1, NULL, NULL);
 }
 EXPORT_SYMBOL_GPL(cpu_pm_exit);
 
@@ -170,7 +170,7 @@ EXPORT_SYMBOL_GPL(cpu_cluster_pm_enter);
  */
 int cpu_cluster_pm_exit(unsigned long aff_level)
 {
-	return cpu_pm_notify(CPU_CLUSTER_PM_EXIT, -1, NULL);
+	return cpu_pm_notify(CPU_CLUSTER_PM_EXIT, -1, NULL, NULL);
 }
 EXPORT_SYMBOL_GPL(cpu_cluster_pm_exit);
 

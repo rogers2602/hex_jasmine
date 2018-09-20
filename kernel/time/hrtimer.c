@@ -1840,21 +1840,14 @@ static void init_hrtimers_cpu(int cpu)
 
 #if defined(CONFIG_HOTPLUG_CPU)
 static int migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
-				 struct hrtimer_clock_base *new_base,
-				 bool remove_pinned)
+				struct hrtimer_clock_base *new_base)
 {
 	struct hrtimer *timer;
 	struct timerqueue_node *node;
-	struct timerqueue_head pinned;
-	int is_pinned;
-	bool is_hotplug = !cpu_online(old_base->cpu_base->cpu);
-
-	timerqueue_init_head(&pinned);
 
 	while ((node = timerqueue_getnext(&old_base->active))) {
 		timer = container_of(node, struct hrtimer, node);
-		if (is_hotplug)
-			BUG_ON(hrtimer_callback_running(timer));
+		BUG_ON(hrtimer_callback_running(timer));
 		debug_deactivate(timer);
 
 		/*
@@ -1863,13 +1856,6 @@ static int migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 		 * under us on another CPU
 		 */
 		__remove_hrtimer(timer, old_base, HRTIMER_STATE_ENQUEUED, 0);
-
-		is_pinned = timer->state & HRTIMER_STATE_PINNED;
-		if (!remove_pinned && is_pinned) {
-			timerqueue_add(&pinned, &timer->node);
-			continue;
-		}
-
 		timer->base = new_base;
 		/*
 		 * Enqueue the timers on the new cpu. This does not
@@ -1881,7 +1867,6 @@ static int migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 		 */
 		enqueue_hrtimer(timer, new_base);
 	}
-
 #ifdef CONFIG_PREEMPT_RT_BASE
 	list_splice_tail(&old_base->expired, &new_base->expired);
 	/*
@@ -1890,13 +1875,6 @@ static int migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 	 */
 	return !list_empty(&new_base->expired);
 #endif
-	/* Re-queue pinned timers for non-hotplug usecase */
-	while ((node = timerqueue_getnext(&pinned))) {
-		timer = container_of(node, struct hrtimer, node);
-
-		timerqueue_del(&pinned, &timer->node);
-		enqueue_hrtimer(timer, old_base);
-	}
 	return 0;
 }
 
