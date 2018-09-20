@@ -63,6 +63,7 @@
 #include <linux/errqueue.h>
 #include <linux/prefetch.h>
 #include <linux/if_vlan.h>
+#include <linux/locallock.h>
 
 #include <net/protocol.h>
 #include <net/dst.h>
@@ -354,6 +355,8 @@ EXPORT_SYMBOL(build_skb);
 
 static DEFINE_PER_CPU(struct page_frag_cache, netdev_alloc_cache);
 static DEFINE_PER_CPU(struct page_frag_cache, napi_alloc_cache);
+static DEFINE_LOCAL_IRQ_LOCK(netdev_alloc_lock);
+static DEFINE_LOCAL_IRQ_LOCK(napi_alloc_cache_lock);
 
 static void *__netdev_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 {
@@ -364,10 +367,10 @@ static void *__netdev_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 	if (IS_ENABLED(CONFIG_FORCE_ALLOC_FROM_DMA_ZONE))
 		gfp_mask |= GFP_DMA;
 
-	local_irq_save(flags);
+	local_lock_irqsave(netdev_alloc_lock, flags);
 	nc = this_cpu_ptr(&netdev_alloc_cache);
 	data = __alloc_page_frag(nc, fragsz, gfp_mask);
-	local_irq_restore(flags);
+	local_unlock_irqrestore(netdev_alloc_lock, flags);
 	return data;
 }
 
@@ -386,9 +389,13 @@ EXPORT_SYMBOL(netdev_alloc_frag);
 
 static void *__napi_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 {
-	struct page_frag_cache *nc = this_cpu_ptr(&napi_alloc_cache);
+	struct page_frag_cache *nc;
+	void *data;
 
-	return __alloc_page_frag(nc, fragsz, gfp_mask);
+	nc = &get_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
+	data = __alloc_page_frag(nc, fragsz, gfp_mask);
+	put_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
+	return data;
 }
 
 void *napi_alloc_frag(unsigned int fragsz)
@@ -439,13 +446,13 @@ struct sk_buff *__netdev_alloc_skb(struct net_device *dev, unsigned int len,
 	if (sk_memalloc_socks())
 		gfp_mask |= __GFP_MEMALLOC;
 
-	local_irq_save(flags);
+	local_lock_irqsave(netdev_alloc_lock, flags);
 
 	nc = this_cpu_ptr(&netdev_alloc_cache);
 	data = __alloc_page_frag(nc, len, gfp_mask);
 	pfmemalloc = nc->pfmemalloc;
 
-	local_irq_restore(flags);
+	local_unlock_irqrestore(netdev_alloc_lock, flags);
 
 	if (unlikely(!data))
 		return NULL;
@@ -502,9 +509,10 @@ EXPORT_SYMBOL(__netdev_alloc_skb);
 struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 				 gfp_t gfp_mask)
 {
-	struct page_frag_cache *nc = this_cpu_ptr(&napi_alloc_cache);
+	struct page_frag_cache *nc;
 	struct sk_buff *skb;
 	void *data;
+	bool pfmemalloc;
 
 	len += NET_SKB_PAD + NET_IP_ALIGN;
 
@@ -522,7 +530,11 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 	if (sk_memalloc_socks())
 		gfp_mask |= __GFP_MEMALLOC;
 
+	nc = &get_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
 	data = __alloc_page_frag(nc, len, gfp_mask);
+	pfmemalloc = nc->pfmemalloc;
+	put_locked_var(napi_alloc_cache_lock, napi_alloc_cache);
+
 	if (unlikely(!data))
 		return NULL;
 
@@ -533,7 +545,7 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 	}
 
 	/* use OR instead of assignment to avoid clearing of bits in mask */
-	if (nc->pfmemalloc)
+	if (pfmemalloc)
 		skb->pfmemalloc = 1;
 	skb->head_frag = 1;
 
