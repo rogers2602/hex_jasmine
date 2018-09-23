@@ -151,13 +151,6 @@ DEFINE_EVENT(cpu, cpu_capacity,
 
 	TP_ARGS(capacity, cpu_id)
 );
-	
-DEFINE_EVENT(cpu, cpu_capacity,
-
-	TP_PROTO(unsigned int capacity, unsigned int cpu_id),
-
-	TP_ARGS(capacity, cpu_id)
-);
 
 TRACE_EVENT(device_pm_callback_start,
 

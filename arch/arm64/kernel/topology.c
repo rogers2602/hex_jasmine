@@ -19,9 +19,22 @@
 #include <linux/nodemask.h>
 #include <linux/of.h>
 #include <linux/sched.h>
+#include <linux/sched_energy.h>
 
 #include <asm/cputype.h>
 #include <asm/topology.h>
+
+static DEFINE_PER_CPU(unsigned long, cpu_scale);
+
+unsigned long scale_cpu_capacity(struct sched_domain *sd, int cpu)
+{
+	return per_cpu(cpu_scale, cpu);
+}
+
+static void set_capacity_scale(unsigned int cpu, unsigned long capacity)
+{
+	per_cpu(cpu_scale, cpu) = capacity;
+}
 
 static int __init get_cpu_for_node(struct device_node *node)
 {
@@ -261,7 +274,7 @@ static void update_cpu_capacity(unsigned int cpu)
 {
 	unsigned long capacity = SCHED_CAPACITY_SCALE;
 
-	if (sched_energy_aware && cpu_core_energy(cpu)) {
+	if (cpu_core_energy(cpu)) {
 		int max_cap_idx = cpu_core_energy(cpu)->nr_cap_states - 1;
 		capacity = cpu_core_energy(cpu)->cap_states[max_cap_idx].cap;
 	}
