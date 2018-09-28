@@ -657,7 +657,7 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, attribute-alias)
 KBUILD_CFLAGS += $(call cc-option,--param=store-merging-allow-unaligned=0)
 KBUILD_CFLAGS += -finline-limit=100000
-KBUILD_CFLAGS += --param inline-min-speedup=5
+KBUILD_CFLAGS += --param inline-min-speedup=5 --param large-function-insns=100000 --param large-function-growth=1000
 
 ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
 KBUILD_CFLAGS	+= $(call cc-option,-ffunction-sections,)
