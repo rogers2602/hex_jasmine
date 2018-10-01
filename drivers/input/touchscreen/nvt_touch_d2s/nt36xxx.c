@@ -1619,6 +1619,12 @@ static int32_t nvt_ts_suspend(struct device *dev)
 #endif
 	input_sync(ts->input_dev);
 
+ #ifdef CONFIG_WAKE_GESTURES
+    if (wg_switch) {
+        enable_irq_wake(ts->client->irq);
+    }
+#endif
+
 	msleep(50);
 	suspend_state = true;
 	mutex_unlock(&ts->lock);
@@ -1646,6 +1652,12 @@ static int32_t nvt_ts_resume(struct device *dev)
 
 	NVT_LOG("start\n");
 
+#ifdef CONFIG_WAKE_GESTURES
+    if (wg_switch) {
+        disable_irq_wake(data->client->irq);
+    }
+#endif
+
 
 	nvt_bootloader_reset();
 	nvt_check_fw_reset_state(RESET_STATE_REK);
@@ -1660,13 +1672,6 @@ static int32_t nvt_ts_resume(struct device *dev)
 		enable_gesture_mode = !enable_gesture_mode;
 	}
 
-#ifdef CONFIG_WAKE_GESTURES
-    if (wg_changed) {
-        wg_switch = wg_switch_temp;
-        wg_changed = false;
-    }
-#endif
-
 #if NVT_TOUCH_ESD_PROTECT
 	queue_delayed_work(nvt_esd_check_wq, &nvt_esd_check_work,
 			msecs_to_jiffies(NVT_TOUCH_ESD_CHECK_PERIOD));
@@ -1678,6 +1683,13 @@ static int32_t nvt_ts_resume(struct device *dev)
 	suspend_state = false;
 	delay_gesture = false;
 	NVT_LOG("end\n");
+
+#ifdef CONFIG_WAKE_GESTURES
+    if (wg_changed) {
+        wg_switch = wg_switch_temp;
+        wg_changed = false;
+    }
+#endif
 
 	return 0;
 }
