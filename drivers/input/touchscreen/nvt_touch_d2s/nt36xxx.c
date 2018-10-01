@@ -1654,7 +1654,7 @@ static int32_t nvt_ts_resume(struct device *dev)
 
 #ifdef CONFIG_WAKE_GESTURES
     if (wg_switch) {
-        disable_irq_wake(data->client->irq);
+        disable_irq_wake(ts->client->irq);
     }
 #endif
 
