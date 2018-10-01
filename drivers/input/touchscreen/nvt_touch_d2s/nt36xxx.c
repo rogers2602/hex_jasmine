@@ -36,6 +36,10 @@
 #include <linux/earlysuspend.h>
 #endif
 
+#ifdef CONFIG_WAKE_GESTURES
+#include <linux/wake_gestures.h>
+#endif
+
 #include "nt36xxx.h"
 #if NVT_TOUCH_ESD_PROTECT
 #include <linux/jiffies.h>
@@ -241,6 +245,15 @@ bool delay_gesture = false;
 bool suspend_state = false;
 #define WAKEUP_OFF 4
 #define WAKEUP_ON 5
+
+#ifdef CONFIG_WAKE_GESTURES
+bool scr_suspended(void)
+{
+    return suspend_state;
+
+}
+#endif
+
 
 int nvt_gesture_switch(struct input_dev *dev, unsigned int type, unsigned int code, int value)
 {
@@ -1061,6 +1074,12 @@ static void nvt_ts_work_func(struct work_struct *work)
 			if (input_p == 0)
 				input_p = 1;
 
+#ifdef CONFIG_WAKE_GESTURES
+        if (scr_suspended() && wg_switch)
+           input_x += 5000;
+#endif
+
+
 #if MT_PROTOCOL_B
 			press_id[input_id - 1] = 1;
 			input_mt_slot(ts->input_dev, input_id - 1);
@@ -1640,6 +1659,13 @@ static int32_t nvt_ts_resume(struct device *dev)
 	if (delay_gesture) {
 		enable_gesture_mode = !enable_gesture_mode;
 	}
+
+#ifdef CONFIG_WAKE_GESTURES
+    if (wg_changed) {
+        wg_switch = wg_switch_temp;
+        wg_changed = false;
+    }
+#endif
 
 #if NVT_TOUCH_ESD_PROTECT
 	queue_delayed_work(nvt_esd_check_wq, &nvt_esd_check_work,
