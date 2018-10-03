@@ -1,4 +1,5 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2015, 2017, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +10,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
+#define pr_fmt(fmt)	"haptic: %s: " fmt, __func__
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -514,11 +517,8 @@ static void qpnp_handle_sc_irq(struct work_struct *work)
 	struct qpnp_hap *hap = container_of(work,
 				struct qpnp_hap, sc_work.work);
 	u8 val;
-	int rc;
 
-	rc = qpnp_hap_read_reg(hap, QPNP_HAP_STATUS(hap->base), &val);
-	if (rc < 0)
-		return;
+	qpnp_hap_read_reg(hap, QPNP_HAP_STATUS(hap->base), &val);
 
 	/* clear short circuit register */
 	if (val & SC_FOUND_BIT) {
@@ -567,12 +567,14 @@ static int qpnp_hap_mod_enable(struct qpnp_hap *hap, bool on)
 				break;
 			}
 		}
+		pr_info("zjl %s  11 val == %d\n", __func__, val);
 		if (i >= QPNP_HAP_MAX_RETRIES)
 			pr_debug("Haptics Busy. Force disable\n");
 	}
 
 	val = on ? QPNP_HAP_EN_BIT : 0;
 	rc = qpnp_hap_write_reg(hap, QPNP_HAP_EN_CTL_REG(hap->base), val);
+	pr_info("zjl %s  end val == %d\n", __func__, val);
 	if (rc < 0)
 		return rc;
 
@@ -601,9 +603,7 @@ static ssize_t qpnp_hap_dump_regs_show(struct device *dev,
 	u8 val;
 
 	for (i = 0; i < ARRAY_SIZE(qpnp_hap_dbg_regs); i++) {
-		int ret = qpnp_hap_read_reg(hap, hap->base + qpnp_hap_dbg_regs[i], &val);
-		if (ret < 0)
-			continue;
+		qpnp_hap_read_reg(hap, hap->base + qpnp_hap_dbg_regs[i], &val);
 		count += snprintf(buf + count, PAGE_SIZE - count,
 				"qpnp_haptics: REG_0x%x = 0x%x\n",
 				hap->base + qpnp_hap_dbg_regs[i],
@@ -651,8 +651,8 @@ static irqreturn_t qpnp_hap_sc_irq(int irq, void *_hap)
 	pr_debug("Short circuit detected\n");
 
 	if (hap->sc_count < SC_MAX_COUNT) {
-		rc = qpnp_hap_read_reg(hap, QPNP_HAP_STATUS(hap->base), &val);
-		if (!rc && (val & SC_FOUND_BIT))
+		qpnp_hap_read_reg(hap, QPNP_HAP_STATUS(hap->base), &val);
+		if (val & SC_FOUND_BIT)
 			schedule_delayed_work(&hap->sc_work,
 					QPNP_HAP_SC_IRQ_STATUS_DELAY);
 		else
@@ -1690,8 +1690,6 @@ static ssize_t qpnp_hap_hi_z_period_show(struct device *dev,
 	case QPNP_HAP_LRA_HIGH_Z_OPT3:
 		str = "high_z_opt3";
 		break;
-	default:
-		str = "unknown";
 	}
 
 	return snprintf(buf, PAGE_SIZE, "%s\n", str);
@@ -1805,22 +1803,14 @@ static ssize_t qpnp_hap_vmax_store(struct device *dev,
 	struct timed_output_dev *timed_dev = dev_get_drvdata(dev);
 	struct qpnp_hap *hap = container_of(timed_dev, struct qpnp_hap,
 					 timed_dev);
-	u32 data;
-	int rc;
- 	if (sscanf(buf, "%d", &data) != 1)
-		return -EINVAL;
- 	if (data < QPNP_HAP_VMAX_MIN_MV) {
-		pr_err("%s: mv %d not in range (%d - %d), using min.", __func__, data, QPNP_HAP_VMAX_MIN_MV, QPNP_HAP_VMAX_MAX_MV);
-		data = QPNP_HAP_VMAX_MIN_MV;
-	} else if (data > QPNP_HAP_VMAX_MAX_MV) {
-		pr_err("%s: mv %d not in range (%d - %d), using max.", __func__, data, QPNP_HAP_VMAX_MIN_MV, QPNP_HAP_VMAX_MAX_MV);
-		data = QPNP_HAP_VMAX_MAX_MV;
-	}
- 	hap->vmax_mv = data;
-	rc = qpnp_hap_vmax_config(hap, hap->vmax_mv, true);
+	int data, rc;
+
+	rc = kstrtoint(buf, 10, &data);
 	if (rc)
-		pr_info("qpnp: error while writing vibration control register\n");
- 	return strnlen(buf, count);
+		return rc;
+
+	hap->vmax_mv = data;
+	return count;
 }
 
 /* sysfs attributes */
@@ -2265,59 +2255,70 @@ static int qpnp_hap_auto_mode_config(struct qpnp_hap *hap, int time_ms)
 static void qpnp_hap_td_enable(struct timed_output_dev *dev, int time_ms)
 {
 	struct qpnp_hap *hap = container_of(dev, struct qpnp_hap,
-					 timed_dev);
-	bool state = !!time_ms;
-	ktime_t rem;
-	int rc;
+			timed_dev);
+	int rc, vmax_mv;
 
 	if (time_ms < 0)
 		return;
 
 	mutex_lock(&hap->lock);
 
-	if (hap->state == state) {
-		if (state) {
-			rem = hrtimer_get_remaining(&hap->hap_timer);
-			if (time_ms > ktime_to_ms(rem)) {
-				time_ms = (time_ms > hap->timeout_ms ?
-						 hap->timeout_ms : time_ms);
-				hrtimer_cancel(&hap->hap_timer);
-				hap->play_time_ms = time_ms;
-				hrtimer_start(&hap->hap_timer,
-						ktime_set(time_ms / 1000,
-						(time_ms % 1000) * 1000000),
-						HRTIMER_MODE_REL);
-			}
-		}
+	if (time_ms == 0) {
+		/* disable haptics */
+		hrtimer_cancel(&hap->hap_timer);
+		hap->state = 0;
+		schedule_work(&hap->work);
 		mutex_unlock(&hap->lock);
 		return;
 	}
 
-	hap->state = state;
-	if (!hap->state) {
-		hrtimer_cancel(&hap->hap_timer);
+	if (time_ms < 10)
+		time_ms = 10;
+	if ((time_ms >= 30) || (time_ms != 11) || (time_ms != 15) || (time_ms != 20)) {
+		vmax_mv = 2204;
+		qpnp_hap_vmax_config(hap, vmax_mv, false);
+		hap->play_mode = QPNP_HAP_DIRECT;
 	} else {
-		if (time_ms < 10)
-			time_ms = 10;
-
-		if (hap->auto_mode) {
-			rc = qpnp_hap_auto_mode_config(hap, time_ms);
-			if (rc < 0) {
-				pr_err("Unable to do auto mode config\n");
-				mutex_unlock(&hap->lock);
-				return;
-			}
+		hap->play_mode = QPNP_HAP_BUFFER;
+		qpnp_hap_parse_buffer_dt(hap);
+		if (time_ms == 20) {
+			qpnp_hap_buffer_config(hap, hap->wave_samp_three, true);
+		} else if (time_ms == 15) {
+			qpnp_hap_buffer_config(hap, hap->wave_samp_two, true);
+		} else if (time_ms == 11) {
+			qpnp_hap_buffer_config(hap, hap->wave_samp, true);
 		}
 
-		time_ms = (time_ms > hap->timeout_ms ?
-				 hap->timeout_ms : time_ms);
-		hap->play_time_ms = time_ms;
-		hrtimer_start(&hap->hap_timer,
-				ktime_set(time_ms / 1000,
-				(time_ms % 1000) * 1000000),
-				HRTIMER_MODE_REL);
+		vmax_mv = 2204;
+		qpnp_hap_vmax_config(hap, vmax_mv, false);
+
+		hap->play_mode = QPNP_HAP_BUFFER;
+		hap->wave_shape = QPNP_HAP_WAV_SQUARE;
+	}
+	qpnp_hap_mod_enable(hap, false);
+	qpnp_hap_play_mode_config(hap);
+
+	if (is_sw_lra_auto_resonance_control(hap))
+		hrtimer_cancel(&hap->auto_res_err_poll_timer);
+
+	hrtimer_cancel(&hap->hap_timer);
+
+	if (hap->auto_mode) {
+		rc = qpnp_hap_auto_mode_config(hap, time_ms);
+		if (rc < 0) {
+			pr_err("Unable to do auto mode config\n");
+			mutex_unlock(&hap->lock);
+			return;
+		}
 	}
 
+	time_ms = (time_ms > hap->timeout_ms ? hap->timeout_ms : time_ms);
+	hap->play_time_ms = time_ms;
+	hap->state = 1;
+	pr_info("zjl aaa  haptic  =%d\n", time_ms);
+	hrtimer_start(&hap->hap_timer,
+			ktime_set(time_ms / 1000, (time_ms % 1000) * 1000000),
+			HRTIMER_MODE_REL);
 	mutex_unlock(&hap->lock);
 	schedule_work(&hap->work);
 }
