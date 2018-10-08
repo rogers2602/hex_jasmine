@@ -12,6 +12,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/interrupt.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
@@ -39,6 +40,9 @@ extern int first_ce_state, first_cabc_state, first_srgb_state, first_gamma_state
 extern int mdss_first_set_feature(struct mdss_panel_data *pdata, int first_ce_state, int first_cabc_state, int first_srgb_state, int first_gamma_state);
 extern bool first_set_bl;
 char g_lcd_id[128];
+
+static unsigned int brightness_floor = 16; /* 16 is Android's default lowest user-controlled brightness */
+module_param(brightness_floor, uint, 0644);
 
 bool ESD_TE_status = false;
 DEFINE_LED_TRIGGER(bl_led_trigger);
@@ -430,7 +434,6 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		pr_err("%s: Invalid input data\n", __func__);
 		return -EINVAL;
 	}
-	printk("%s, panel reset\n", __func__);
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
@@ -453,9 +456,7 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			   __func__, __LINE__);
 		return rc;
 	}
-
-	pr_debug("%s: enable = %d\n", __func__, enable);
-
+	
 	if (enable) {
 		rc = mdss_dsi_request_gpios(ctrl_pdata);
 		if (rc) {
@@ -914,15 +915,15 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 		return;
 	}
 
+	/*
+	 * Use the minimum possible brightness when bl_level
+	 * is less than or equal to the floor value.
+	 */
+	if (brightness_floor && bl_level <= brightness_floor && bl_level != 0)
+		bl_level = pdata->panel_info.bl_min;
+
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
-
-	/*
-	 * Some backlight controllers specify a minimum duty cycle
-	 * for the backlight brightness. If the brightness is less
-	 * than it, the controller can malfunction.
-	 */
-	pr_err("%s: bl_level:%d\n", __func__, bl_level);
 
 	/* do not allow backlight to change when panel in disable mode */
 	if (pdata->panel_disable_mode && (bl_level != 0))
@@ -1109,8 +1110,6 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
-	pr_err("%s: ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
-
 	if (pinfo->dcs_cmd_by_left) {
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			goto end;
@@ -1128,7 +1127,6 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	}
 
 end:
-	pr_err("%s:-\n", __func__);
 	return 0;
 }
 
