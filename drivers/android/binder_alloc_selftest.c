@@ -3,7 +3,6 @@
  * Android IPC Subsystem
  *
  * Copyright (C) 2017 Google, Inc.
- * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -84,8 +83,8 @@ enum buf_end_align_type {
 };
 
 static bool check_buffer_pages_allocated(struct binder_alloc *alloc,
-			struct binder_buffer *buffer,
-			size_t size)
+					 struct binder_buffer *buffer,
+					 size_t size)
 {
 	void *page_addr, *end;
 	int page_index;
@@ -95,7 +94,7 @@ static bool check_buffer_pages_allocated(struct binder_alloc *alloc,
 	for (; page_addr < end; page_addr += PAGE_SIZE) {
 		page_index = (page_addr - alloc->buffer) / PAGE_SIZE;
 		if (!alloc->pages[page_index].page_ptr ||
-				!list_empty(&alloc->pages[page_index].lru)) {
+		    !list_empty(&alloc->pages[page_index].lru)) {
 			return false;
 		}
 	}
@@ -103,24 +102,24 @@ static bool check_buffer_pages_allocated(struct binder_alloc *alloc,
 }
 
 static void binder_selftest_alloc_buf(struct binder_alloc *alloc,
-			struct binder_buffer *buffers[],
-			size_t *sizes, int *seq)
+				      struct binder_buffer *buffers[],
+				      size_t *sizes, int *seq)
 {
 	int i;
 
 	for (i = 0; i < BUFFER_NUM; i++) {
 		buffers[i] = binder_alloc_new_buf(alloc, sizes[i], 0, 0, 0);
 		if (IS_ERR(buffers[i]) ||
-				!check_buffer_pages_allocated(alloc, buffers[i],
-				sizes[i])) {
+		    !check_buffer_pages_allocated(alloc, buffers[i],
+						  sizes[i])) {
 			binder_selftest_failures++;
 		}
 	}
 }
 
 static void binder_selftest_free_buf(struct binder_alloc *alloc,
-			struct binder_buffer *buffers[],
-			size_t *sizes, int *seq, size_t end)
+				     struct binder_buffer *buffers[],
+				     size_t *sizes, int *seq, size_t end)
 {
 	int i;
 
@@ -128,6 +127,11 @@ static void binder_selftest_free_buf(struct binder_alloc *alloc,
 		binder_alloc_free_buf(alloc, buffers[seq[i]]);
 
 	for (i = 0; i < end / PAGE_SIZE; i++) {
+		/**
+		 * Error message on a free page can be false positive
+		 * if binder shrinker ran during binder_alloc_free_buf
+		 * calls above.
+		 */
 		if (list_empty(&alloc->pages[i].lru)) {
 			binder_selftest_failures++;
 		}
@@ -141,7 +145,7 @@ static void binder_selftest_free_page(struct binder_alloc *alloc)
 
 	while ((count = list_lru_count(&binder_alloc_lru))) {
 		list_lru_walk(&binder_alloc_lru, binder_alloc_free_page,
-				NULL, count);
+			      NULL, count);
 	}
 
 	for (i = 0; i < (alloc->buffer_size / PAGE_SIZE); i++) {
@@ -152,7 +156,7 @@ static void binder_selftest_free_page(struct binder_alloc *alloc)
 }
 
 static void binder_selftest_alloc_free(struct binder_alloc *alloc,
-			size_t *sizes, int *seq, size_t end)
+				       size_t *sizes, int *seq, size_t end)
 {
 	struct binder_buffer *buffers[BUFFER_NUM];
 
@@ -179,8 +183,8 @@ static bool is_dup(int *seq, int index, int val)
 
 /* Generate BUFFER_NUM factorial free orders. */
 static void binder_selftest_free_seq(struct binder_alloc *alloc,
-			size_t *sizes, int *seq,
-			int index, size_t end)
+				     size_t *sizes, int *seq,
+				     int index, size_t end)
 {
 	int i;
 
@@ -197,7 +201,7 @@ static void binder_selftest_free_seq(struct binder_alloc *alloc,
 }
 
 static void binder_selftest_alloc_size(struct binder_alloc *alloc,
-			size_t *end_offset)
+				       size_t *end_offset)
 {
 	int i;
 	int seq[BUFFER_NUM] = {0};
@@ -223,7 +227,7 @@ static void binder_selftest_alloc_size(struct binder_alloc *alloc,
 }
 
 static void binder_selftest_alloc_offset(struct binder_alloc *alloc,
-			size_t *end_offset, int index)
+					 size_t *end_offset, int index)
 {
 	int align;
 	size_t end, prev;
