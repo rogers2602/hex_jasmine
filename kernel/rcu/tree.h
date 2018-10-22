@@ -248,7 +248,7 @@ struct rcu_node {
 				/* Counts of upcoming no-CB GP requests. */
 	raw_spinlock_t fqslock ____cacheline_internodealigned_in_smp;
 
-	struct mutex exp_funnel_mutex ____cacheline_internodealigned_in_smp;
+	struct rt_mutex exp_funnel_mutex ____cacheline_internodealigned_in_smp;
 } ____cacheline_internodealigned_in_smp;
 
 /*
@@ -383,7 +383,7 @@ struct rcu_data {
 #ifdef CONFIG_RCU_FAST_NO_HZ
 	struct rcu_head oom_head;
 #endif /* #ifdef CONFIG_RCU_FAST_NO_HZ */
-	struct mutex exp_funnel_mutex;
+	struct rt_mutex exp_funnel_mutex;
 
 	/* 7) Callback offloading. */
 #ifdef CONFIG_RCU_NOCB_CPU
@@ -490,7 +490,7 @@ struct rcu_state {
 	long qlen;				/* Total number of callbacks. */
 	/* End of fields guarded by orphan_lock. */
 
-	struct mutex barrier_mutex;		/* Guards barrier fields. */
+	struct rt_mutex barrier_mutex;		/* Guards barrier fields. */
 	atomic_t barrier_cpu_count;		/* # CPUs waiting on. */
 	struct completion barrier_completion;	/* Wake at barrier end. */
 	unsigned long barrier_sequence;		/* ++ at start and end of */
@@ -624,15 +624,7 @@ static void __init rcu_organize_nocb_kthreads(struct rcu_state *rsp);
 #endif /* #ifdef CONFIG_RCU_NOCB_CPU */
 static void __maybe_unused rcu_kick_nohz_cpu(int cpu);
 static bool init_nocb_callback_list(struct rcu_data *rdp);
-static void rcu_sysidle_enter(int irq);
-static void rcu_sysidle_exit(int irq);
-static void rcu_sysidle_check_cpu(struct rcu_data *rdp, bool *isidle,
-				  unsigned long *maxj);
-static bool is_sysidle_rcu_state(struct rcu_state *rsp);
-static void rcu_sysidle_report_gp(struct rcu_state *rsp, int isidle,
-				  unsigned long maxj);
 static void rcu_bind_gp_kthread(void);
-static void rcu_sysidle_init_percpu_data(struct rcu_dynticks *rdtp);
 static bool rcu_nohz_full_cpu(struct rcu_state *rsp);
 static void rcu_dynticks_task_enter(void);
 static void rcu_dynticks_task_exit(void);

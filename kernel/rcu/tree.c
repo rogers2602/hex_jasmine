@@ -105,7 +105,7 @@ struct rcu_state sname##_state = { \
 	.orphan_lock = __RAW_SPIN_LOCK_UNLOCKED(&sname##_state.orphan_lock), \
 	.orphan_nxttail = &sname##_state.orphan_nxtlist, \
 	.orphan_donetail = &sname##_state.orphan_donelist, \
-	.barrier_mutex = __MUTEX_INITIALIZER(sname##_state.barrier_mutex), \
+	.barrier_mutex = __RT_MUTEX_INITIALIZER(sname##_state.barrier_mutex), \
 	.name = RCU_STATE_NAME(sname), \
 	.abbr = sabbr, \
 }
@@ -713,7 +713,6 @@ void rcu_idle_enter(void)
 
 	local_irq_save(flags);
 	rcu_eqs_enter(false);
-	rcu_sysidle_enter(0);
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL_GPL(rcu_idle_enter);
@@ -771,7 +770,6 @@ void rcu_irq_exit(void)
 		trace_rcu_dyntick(TPS("--="), oldval, rdtp->dynticks_nesting);
 	else
 		rcu_eqs_enter_common(oldval, true);
-	rcu_sysidle_enter(1);
 	local_irq_restore(flags);
 }
 
@@ -846,7 +844,6 @@ void rcu_idle_exit(void)
 
 	local_irq_save(flags);
 	rcu_eqs_exit(false);
-	rcu_sysidle_exit(0);
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL_GPL(rcu_idle_exit);
@@ -905,7 +902,6 @@ void rcu_irq_enter(void)
 		trace_rcu_dyntick(TPS("++="), oldval, rdtp->dynticks_nesting);
 	else
 		rcu_eqs_exit_common(oldval, true);
-	rcu_sysidle_exit(1);
 	local_irq_restore(flags);
 }
 
@@ -1078,7 +1074,6 @@ static int dyntick_save_progress_counter(struct rcu_data *rdp,
 					 bool *isidle, unsigned long *maxj)
 {
 	rdp->dynticks_snap = atomic_add_return(0, &rdp->dynticks->dynticks);
-	rcu_sysidle_check_cpu(rdp, isidle, maxj);
 	if ((rdp->dynticks_snap & 0x1) == 0) {
 		trace_rcu_fqs(rdp->rsp->name, rdp->gpnum, rdp->cpu, TPS("dti"));
 		return 1;
@@ -1979,16 +1974,10 @@ static void rcu_gp_fqs(struct rcu_state *rsp, bool first_time)
 	rsp->n_force_qs++;
 	if (first_time) {
 		/* Collect dyntick-idle snapshots. */
-		if (is_sysidle_rcu_state(rsp)) {
-			isidle = true;
-			maxj = jiffies - ULONG_MAX / 4;
-		}
 		force_qs_rnp(rsp, dyntick_save_progress_counter,
 			     &isidle, &maxj);
-		rcu_sysidle_report_gp(rsp, isidle, maxj);
 	} else {
 		/* Handle dyntick-idle and offline CPUs. */
-		isidle = true;
 		force_qs_rnp(rsp, rcu_implicit_dynticks_qs, &isidle, &maxj);
 	}
 	/* Clear flag to prevent immediate re-entry. */
@@ -3611,9 +3600,9 @@ static bool sync_exp_work_done(struct rcu_state *rsp, struct rcu_node *rnp,
 {
 	if (rcu_exp_gp_seq_done(rsp, s)) {
 		if (rnp)
-			mutex_unlock(&rnp->exp_funnel_mutex);
+			rt_mutex_unlock(&rnp->exp_funnel_mutex);
 		else if (rdp)
-			mutex_unlock(&rdp->exp_funnel_mutex);
+			rt_mutex_unlock(&rdp->exp_funnel_mutex);
 		/* Ensure test happens before caller kfree(). */
 		smp_mb__before_atomic(); /* ^^^ */
 		atomic_long_inc(stat);
@@ -3636,12 +3625,12 @@ static struct rcu_node *exp_funnel_lock(struct rcu_state *rsp, unsigned long s)
 	/*
 	 * First try directly acquiring the root lock in order to reduce
 	 * latency in the common case where expedited grace periods are
-	 * rare.  We check mutex_is_locked() to avoid pathological levels of
+	 * rare.  We check rt_mutex_is_locked() to avoid pathological levels of
 	 * memory contention on ->exp_funnel_mutex in the heavy-load case.
 	 */
 	rnp0 = rcu_get_root(rsp);
-	if (!mutex_is_locked(&rnp0->exp_funnel_mutex)) {
-		if (mutex_trylock(&rnp0->exp_funnel_mutex)) {
+	if (!rt_mutex_is_locked(&rnp0->exp_funnel_mutex)) {
+		if (rt_mutex_trylock(&rnp0->exp_funnel_mutex)) {
 			if (sync_exp_work_done(rsp, rnp0, NULL,
 					       &rsp->expedited_workdone0, s))
 				return NULL;
@@ -3660,17 +3649,17 @@ static struct rcu_node *exp_funnel_lock(struct rcu_state *rsp, unsigned long s)
 	rdp = per_cpu_ptr(rsp->rda, raw_smp_processor_id());
 	if (sync_exp_work_done(rsp, NULL, NULL, &rsp->expedited_workdone1, s))
 		return NULL;
-	mutex_lock(&rdp->exp_funnel_mutex);
+	rt_mutex_lock(&rdp->exp_funnel_mutex);
 	rnp0 = rdp->mynode;
 	for (; rnp0 != NULL; rnp0 = rnp0->parent) {
 		if (sync_exp_work_done(rsp, rnp1, rdp,
 				       &rsp->expedited_workdone2, s))
 			return NULL;
-		mutex_lock(&rnp0->exp_funnel_mutex);
+		rt_mutex_lock(&rnp0->exp_funnel_mutex);
 		if (rnp1)
-			mutex_unlock(&rnp1->exp_funnel_mutex);
+			rt_mutex_unlock(&rnp1->exp_funnel_mutex);
 		else
-			mutex_unlock(&rdp->exp_funnel_mutex);
+			rt_mutex_unlock(&rdp->exp_funnel_mutex);
 		rnp1 = rnp0;
 	}
 	if (sync_exp_work_done(rsp, rnp1, rdp,
@@ -3879,7 +3868,7 @@ void synchronize_sched_expedited(void)
 	synchronize_sched_expedited_wait(rsp);
 
 	rcu_exp_gp_seq_end(rsp);
-	mutex_unlock(&rnp->exp_funnel_mutex);
+	rt_mutex_unlock(&rnp->exp_funnel_mutex);
 }
 EXPORT_SYMBOL_GPL(synchronize_sched_expedited);
 
@@ -4047,13 +4036,13 @@ static void _rcu_barrier(struct rcu_state *rsp)
 	_rcu_barrier_trace(rsp, "Begin", -1, s);
 
 	/* Take mutex to serialize concurrent rcu_barrier() requests. */
-	mutex_lock(&rsp->barrier_mutex);
+	rt_mutex_lock(&rsp->barrier_mutex);
 
 	/* Did someone else do our work for us? */
 	if (rcu_seq_done(&rsp->barrier_sequence, s)) {
 		_rcu_barrier_trace(rsp, "EarlyExit", -1, rsp->barrier_sequence);
 		smp_mb(); /* caller's subsequent code after above check. */
-		mutex_unlock(&rsp->barrier_mutex);
+		rt_mutex_unlock(&rsp->barrier_mutex);
 		return;
 	}
 
@@ -4118,7 +4107,7 @@ static void _rcu_barrier(struct rcu_state *rsp)
 	rcu_seq_end(&rsp->barrier_sequence);
 
 	/* Other rcu_barrier() invocations can now safely proceed. */
-	mutex_unlock(&rsp->barrier_mutex);
+	rt_mutex_unlock(&rsp->barrier_mutex);
 }
 
 /**
@@ -4179,7 +4168,7 @@ rcu_boot_init_percpu_data(int cpu, struct rcu_state *rsp)
 	WARN_ON_ONCE(atomic_read(&rdp->dynticks->dynticks) != 1);
 	rdp->cpu = cpu;
 	rdp->rsp = rsp;
-	mutex_init(&rdp->exp_funnel_mutex);
+	rt_mutex_init(&rdp->exp_funnel_mutex);
 	rcu_boot_init_nocb_percpu_data(rdp);
 	raw_spin_unlock_irqrestore(&rnp->lock, flags);
 }
@@ -4206,7 +4195,6 @@ rcu_init_percpu_data(int cpu, struct rcu_state *rsp)
 	if (!rdp->nxtlist)
 		init_callback_list(rdp);  /* Re-enable callbacks on this CPU. */
 	rdp->dynticks->dynticks_nesting = DYNTICK_TASK_EXIT_IDLE;
-	rcu_sysidle_init_percpu_data(rdp->dynticks);
 	atomic_set(&rdp->dynticks->dynticks,
 		   (atomic_read(&rdp->dynticks->dynticks) & ~0x1) + 1);
 	raw_spin_unlock(&rnp->lock);		/* irqs remain disabled. */
@@ -4469,7 +4457,7 @@ static void __init rcu_init_one(struct rcu_state *rsp,
 			rnp->level = i;
 			INIT_LIST_HEAD(&rnp->blkd_tasks);
 			rcu_init_one_nocb(rnp);
-			mutex_init(&rnp->exp_funnel_mutex);
+			rt_mutex_init(&rnp->exp_funnel_mutex);
 			lockdep_set_class_and_name(&rnp->exp_funnel_mutex,
 						   &rcu_exp_class[i], exp[i]);
 		}
